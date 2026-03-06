@@ -26,6 +26,7 @@ type Report struct {
 	EventCounts         []NamedCount        `json:"event_counts"`
 	ToolSummaries       []ToolSummary       `json:"tool_summaries"`
 	Contributors        ContributorSummary  `json:"contributors"`
+	TopContributors     []ContributorDetail `json:"top_contributors,omitempty"`
 	Totals              Usage               `json:"totals"`
 	TotalLines          int                 `json:"total_lines"`
 	RepeatedPromptLoad  PromptLoadEstimate  `json:"repeated_prompt_load"`
@@ -97,6 +98,17 @@ type PromptLoadEstimate struct {
 type InstructionEstimate struct {
 	ApproxTokens int `json:"approx_tokens"`
 	Bytes        int `json:"bytes"`
+}
+
+type ContributorDetail struct {
+	Kind         string `json:"kind"`
+	ApproxTokens int    `json:"approx_tokens"`
+	Bytes        int    `json:"bytes"`
+	TurnID       string `json:"turn_id,omitempty"`
+	TurnIndex    int    `json:"turn_index,omitempty"`
+	Tool         string `json:"tool,omitempty"`
+	Occurrences  int    `json:"occurrences,omitempty"`
+	Snippet      string `json:"snippet,omitempty"`
 }
 
 type Analyzer struct{}
@@ -182,6 +194,7 @@ type analyzerState struct {
 	events       map[string]int
 	baseText     string
 	sessionInstr string
+	top          []ContributorDetail
 }
 
 type turnState struct {
@@ -332,6 +345,7 @@ func (s *analyzerState) consumeTurnContext(ts string, raw json.RawMessage) error
 		tokens := estimateTokens(payload.UserInstructions)
 		turn.injectedUserTokens += tokens
 		turn.injectedOccurrences++
+		s.recordContributor("injected_user_instructions", tokens, len(payload.UserInstructions), turn.report.ID, "", 1, payload.UserInstructions)
 	}
 
 	return nil
@@ -405,6 +419,11 @@ func (s *analyzerState) consumeResponseItem(raw json.RawMessage) error {
 				if item.Type == "output_text" {
 					s.report.Contributors.AssistantText.ApproxTokens += estimateTokens(item.Text)
 					s.report.Contributors.AssistantText.Occurrences++
+					turnID := ""
+					if s.currentTurn != nil {
+						turnID = s.currentTurn.report.ID
+					}
+					s.recordContributor("assistant_text", estimateTokens(item.Text), len(item.Text), turnID, "", 1, item.Text)
 				}
 			}
 		}
@@ -445,14 +464,37 @@ func (s *analyzerState) recordToolCall(name, args string) {
 }
 
 func (s *analyzerState) recordToolOutput(output string) {
-	s.report.Contributors.ToolOutputs.ApproxTokens += estimateTokens(output)
+	tokens := estimateTokens(output)
+	s.report.Contributors.ToolOutputs.ApproxTokens += tokens
 	s.report.Contributors.ToolOutputs.Occurrences++
+	turnID := ""
+	toolName := ""
+	if s.currentTurn != nil {
+		turnID = s.currentTurn.report.ID
+		toolName = s.currentTurn.report.LastTool
+	}
+	s.recordContributor("tool_output", tokens, len(output), turnID, toolName, 1, output)
 	if s.currentTurn == nil || s.currentTurn.report.LastTool == "" {
 		return
 	}
 	tool := s.ensureTool(s.currentTurn.report.LastTool)
 	tool.outputByte += len(output)
-	tool.outTokens += estimateTokens(output)
+	tool.outTokens += tokens
+}
+
+func (s *analyzerState) recordContributor(kind string, tokens, bytes int, turnID, tool string, occurrences int, snippet string) {
+	if tokens <= 0 && bytes <= 0 {
+		return
+	}
+	s.top = append(s.top, ContributorDetail{
+		Kind:         kind,
+		ApproxTokens: tokens,
+		Bytes:        bytes,
+		TurnID:       turnID,
+		Tool:         tool,
+		Occurrences:  occurrences,
+		Snippet:      truncateSnippet(snippet, 96),
+	})
 }
 
 func (s *analyzerState) ensureTool(name string) *toolState {
@@ -558,8 +600,13 @@ func (s *analyzerState) finalize() *Report {
 		s.report.RepeatedPromptLoad.ApproxTokens = basePerTurn*len(s.report.Turns) + s.report.Contributors.InjectedUserInstructions.ApproxTokens
 	}
 
+	if len(s.report.Turns) > 0 && basePerTurn > 0 {
+		s.recordContributor("base_instructions_repeated", basePerTurn*len(s.report.Turns), len(s.baseText)*len(s.report.Turns), "", "", len(s.report.Turns), s.baseText)
+	}
+
 	s.report.EventCounts = sortedCounts(s.events)
 	s.report.ToolSummaries = sortedTools(s.tools)
+	s.report.TopContributors = sortedTopContributors(s.top, s.report.Turns)
 	return s.report
 }
 
@@ -595,6 +642,35 @@ func sortedTools(tools map[string]*toolState) []ToolSummary {
 		}
 		return out[i].Calls > out[j].Calls
 	})
+	return out
+}
+
+func sortedTopContributors(items []ContributorDetail, turns []TurnReport) []ContributorDetail {
+	if len(items) == 0 {
+		return nil
+	}
+	turnIndex := make(map[string]int, len(turns))
+	for _, turn := range turns {
+		turnIndex[turn.ID] = turn.Index
+	}
+	out := append([]ContributorDetail(nil), items...)
+	for i := range out {
+		if out[i].TurnIndex == 0 && out[i].TurnID != "" {
+			out[i].TurnIndex = turnIndex[out[i].TurnID]
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ApproxTokens == out[j].ApproxTokens {
+			if out[i].Bytes == out[j].Bytes {
+				return out[i].Kind < out[j].Kind
+			}
+			return out[i].Bytes > out[j].Bytes
+		}
+		return out[i].ApproxTokens > out[j].ApproxTokens
+	})
+	if len(out) > 8 {
+		out = out[:8]
+	}
 	return out
 }
 
@@ -634,4 +710,16 @@ right:
 		}
 	}
 	return b[start:end]
+}
+
+func truncateSnippet(text string, maxRunes int) string {
+	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+	if text == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(text) <= maxRunes {
+		return text
+	}
+	runes := []rune(text)
+	return string(runes[:maxRunes-1]) + "…"
 }

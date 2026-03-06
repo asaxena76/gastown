@@ -72,6 +72,19 @@ func TestAnalyzerSummarizesTurnsToolsAndContributors(t *testing.T) {
 	if report.RepeatedPromptLoad.Turns != 2 {
 		t.Fatalf("RepeatedPromptLoad.Turns = %d, want 2", report.RepeatedPromptLoad.Turns)
 	}
+	if len(report.TopContributors) == 0 {
+		t.Fatal("TopContributors = 0, want > 0")
+	}
+	foundToolOutput := false
+	for _, item := range report.TopContributors {
+		if item.Kind == "tool_output" && item.TurnIndex == 1 {
+			foundToolOutput = true
+			break
+		}
+	}
+	if !foundToolOutput {
+		t.Fatal("TopContributors missing tool_output for turn 1")
+	}
 }
 
 func TestResolveLatestSessionPathFindsNewestJSONL(t *testing.T) {

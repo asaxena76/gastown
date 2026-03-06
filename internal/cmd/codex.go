@@ -149,6 +149,35 @@ func printCodexTranscript(report *codexlog.Report) {
 	fmt.Printf("  %-28s %-9d exact\n", "reasoning tokens", report.Contributors.ReasoningTokens.ApproxTokens)
 	fmt.Println()
 
+	fmt.Println(ui.RenderAccent("Top Context Contributors"))
+	if len(report.TopContributors) == 0 {
+		fmt.Println("  (no detailed contributors)")
+	} else {
+		for _, item := range report.TopContributors {
+			where := ""
+			if item.TurnIndex > 0 {
+				where = fmt.Sprintf("turn=%d", item.TurnIndex)
+			}
+			if item.Tool != "" {
+				if where != "" {
+					where += " "
+				}
+				where += "tool=" + item.Tool
+			}
+			if item.Occurrences > 1 {
+				if where != "" {
+					where += " "
+				}
+				where += fmt.Sprintf("x%d", item.Occurrences)
+			}
+			if where == "" {
+				where = "-"
+			}
+			fmt.Printf("  ~%-8d %-28s %-22s %s\n", item.ApproxTokens, item.Kind, where, item.Snippet)
+		}
+	}
+	fmt.Println()
+
 	fmt.Println(ui.RenderAccent("Repeated Prompt Load"))
 	fmt.Printf("  base instructions per turn: %d\n", report.RepeatedPromptLoad.BaseInstructionsPerTurn)
 	fmt.Printf("  injected instructions avg:  %d\n", report.RepeatedPromptLoad.InjectedPerTurnAverage)
