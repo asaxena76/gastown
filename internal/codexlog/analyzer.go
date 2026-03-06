@@ -34,18 +34,21 @@ type Report struct {
 }
 
 type TurnReport struct {
-	Index       int    `json:"index"`
-	ID          string `json:"id,omitempty"`
-	StartedAt   string `json:"started_at,omitempty"`
-	CWD         string `json:"cwd,omitempty"`
-	Model       string `json:"model,omitempty"`
-	EventCount  int    `json:"event_count"`
-	ToolCalls   int    `json:"tool_calls"`
-	TokenUsage  Usage  `json:"token_usage"`
-	LastTool    string `json:"last_tool,omitempty"`
-	HasUsage    bool   `json:"has_usage"`
-	PromptBytes int    `json:"prompt_bytes,omitempty"`
-	Notes       string `json:"notes,omitempty"`
+	Index          int    `json:"index"`
+	ID             string `json:"id,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"`
+	CWD            string `json:"cwd,omitempty"`
+	Model          string `json:"model,omitempty"`
+	EventCount     int    `json:"event_count"`
+	ToolCalls      int    `json:"tool_calls"`
+	TokenUsage     Usage  `json:"token_usage"`
+	ContextWindow  int    `json:"context_window,omitempty"`
+	ContextLeftPct int    `json:"context_left_pct,omitempty"`
+	LastTool       string `json:"last_tool,omitempty"`
+	HasUsage       bool   `json:"has_usage"`
+	HasContextLeft bool   `json:"has_context_left"`
+	PromptBytes    int    `json:"prompt_bytes,omitempty"`
+	Notes          string `json:"notes,omitempty"`
 }
 
 type Usage struct {
@@ -235,6 +238,7 @@ type eventPayload struct {
 type tokenInfo struct {
 	TotalTokenUsage tokenUsage `json:"total_token_usage"`
 	LastTokenUsage  tokenUsage `json:"last_token_usage"`
+	ModelWindow     int        `json:"model_context_window"`
 }
 
 type tokenUsage struct {
@@ -361,6 +365,7 @@ func (s *analyzerState) consumeEvent(ts string, raw json.RawMessage) error {
 			TotalTokens:           payload.Info.LastTokenUsage.TotalTokens,
 		}
 		s.currentTurn.recordUsage(usage)
+		s.currentTurn.recordContextWindow(payload.Info.ModelWindow)
 	default:
 		if s.currentTurn != nil {
 			s.currentTurn.report.EventCount++
@@ -469,7 +474,34 @@ func (t *turnState) recordUsage(usage Usage) {
 	t.report.HasUsage = true
 	if usage.TotalTokens >= t.report.TokenUsage.TotalTokens {
 		t.report.TokenUsage = usage
+		t.updateContextLeft()
 	}
+}
+
+func (t *turnState) recordContextWindow(window int) {
+	if window <= 0 {
+		return
+	}
+	if window >= t.report.ContextWindow {
+		t.report.ContextWindow = window
+		t.updateContextLeft()
+	}
+}
+
+func (t *turnState) updateContextLeft() {
+	if t.report.ContextWindow <= 0 || t.report.TokenUsage.TotalTokens <= 0 {
+		return
+	}
+	leftRatio := 1 - (float64(t.report.TokenUsage.TotalTokens) / float64(t.report.ContextWindow))
+	leftPct := int(math.Round(leftRatio * 100))
+	if leftPct < 0 {
+		leftPct = 0
+	}
+	if leftPct > 100 {
+		leftPct = 100
+	}
+	t.report.ContextLeftPct = leftPct
+	t.report.HasContextLeft = true
 }
 
 func (s *analyzerState) finalize() *Report {

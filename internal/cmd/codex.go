@@ -99,13 +99,17 @@ func printCodexTranscript(report *codexlog.Report) {
 	fmt.Printf("%s %d lines, %d turns\n", ui.RenderAccent("Shape:"), report.TotalLines, len(report.Turns))
 	fmt.Println()
 
-	fmt.Printf("%-4s %-22s %7s %6s %8s %8s %8s %8s %8s\n", "TURN", "STARTED", "EVENTS", "TOOLS", "INPUT", "CACHED", "OUTPUT", "REASON", "TOTAL")
+	fmt.Printf("%-4s %-22s %7s %6s %8s %8s %8s %8s %8s %6s\n", "TURN", "STARTED", "EVENTS", "TOOLS", "INPUT", "CACHED", "OUTPUT", "REASON", "TOTAL", "LEFT%")
 	for _, turn := range report.Turns {
 		started := turn.StartedAt
 		if len(started) > 22 {
 			started = started[:22]
 		}
-		fmt.Printf("%-4d %-22s %7d %6d %8d %8d %8d %8d %8d\n",
+		leftPct := "-"
+		if turn.HasContextLeft {
+			leftPct = fmt.Sprintf("%d", turn.ContextLeftPct)
+		}
+		fmt.Printf("%-4d %-22s %7d %6d %8d %8d %8d %8d %8d %6s\n",
 			turn.Index,
 			started,
 			turn.EventCount,
@@ -115,9 +119,10 @@ func printCodexTranscript(report *codexlog.Report) {
 			turn.TokenUsage.OutputTokens,
 			turn.TokenUsage.ReasoningOutputTokens,
 			turn.TokenUsage.TotalTokens,
+			leftPct,
 		)
 	}
-	fmt.Printf("%-4s %-22s %7s %6s %8d %8d %8d %8d %8d\n", "SUM", "-", "-", "-", report.Totals.InputTokens, report.Totals.CachedInputTokens, report.Totals.OutputTokens, report.Totals.ReasoningOutputTokens, report.Totals.TotalTokens)
+	fmt.Printf("%-4s %-22s %7s %6s %8d %8d %8d %8d %8d %6s\n", "SUM", "-", "-", "-", report.Totals.InputTokens, report.Totals.CachedInputTokens, report.Totals.OutputTokens, report.Totals.ReasoningOutputTokens, report.Totals.TotalTokens, "-")
 	fmt.Println()
 
 	fmt.Println(ui.RenderAccent("Event Summary"))

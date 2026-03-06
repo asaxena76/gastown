@@ -13,12 +13,12 @@ func TestAnalyzerSummarizesTurnsToolsAndContributors(t *testing.T) {
 		`{"timestamp":"2026-03-06T00:00:02Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"/repo","model":"gpt-5.3-codex","user_instructions":"Injected user instructions"}}`,
 		`{"timestamp":"2026-03-06T00:00:03Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}`,
 		`{"timestamp":"2026-03-06T00:00:04Z","type":"response_item","payload":{"type":"function_call_output","output":"Chunk ID: x\nOutput:\n/repo\n"}}`,
-		`{"timestamp":"2026-03-06T00:00:05Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120}}}}`,
-		`{"timestamp":"2026-03-06T00:00:05Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120}}}}`,
+		`{"timestamp":"2026-03-06T00:00:05Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"model_context_window":240}}}`,
+		`{"timestamp":"2026-03-06T00:00:05Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":120},"model_context_window":240}}}`,
 		`{"timestamp":"2026-03-06T00:00:06Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"first answer"}]}}`,
 		`{"timestamp":"2026-03-06T00:01:00Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}`,
 		`{"timestamp":"2026-03-06T00:01:01Z","type":"turn_context","payload":{"turn_id":"turn-2","cwd":"/repo","model":"gpt-5.3-codex","user_instructions":"Injected user instructions"}}`,
-		`{"timestamp":"2026-03-06T00:01:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":260,"cached_input_tokens":120,"output_tokens":30,"reasoning_output_tokens":7,"total_tokens":290},"last_token_usage":{"input_tokens":160,"cached_input_tokens":80,"output_tokens":10,"reasoning_output_tokens":2,"total_tokens":170}}}}`,
+		`{"timestamp":"2026-03-06T00:01:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":260,"cached_input_tokens":120,"output_tokens":30,"reasoning_output_tokens":7,"total_tokens":290},"last_token_usage":{"input_tokens":160,"cached_input_tokens":80,"output_tokens":10,"reasoning_output_tokens":2,"total_tokens":170},"model_context_window":340}}}`,
 		`{"timestamp":"2026-03-06T00:01:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"second answer"}]}}`,
 	}, "\n")
 
@@ -39,11 +39,17 @@ func TestAnalyzerSummarizesTurnsToolsAndContributors(t *testing.T) {
 	if report.Turns[0].EventCount != 7 {
 		t.Fatalf("turn 1 event_count = %d, want 7", report.Turns[0].EventCount)
 	}
+	if !report.Turns[0].HasContextLeft || report.Turns[0].ContextLeftPct != 50 {
+		t.Fatalf("turn 1 context_left_pct = %d, want 50", report.Turns[0].ContextLeftPct)
+	}
 	if report.Turns[1].TokenUsage.TotalTokens != 170 {
 		t.Fatalf("turn 2 total_tokens = %d, want 170", report.Turns[1].TokenUsage.TotalTokens)
 	}
 	if report.Turns[1].EventCount != 4 {
 		t.Fatalf("turn 2 event_count = %d, want 4", report.Turns[1].EventCount)
+	}
+	if !report.Turns[1].HasContextLeft || report.Turns[1].ContextLeftPct != 50 {
+		t.Fatalf("turn 2 context_left_pct = %d, want 50", report.Turns[1].ContextLeftPct)
 	}
 	if report.Totals.TotalTokens != 290 {
 		t.Fatalf("Totals.TotalTokens = %d, want 290", report.Totals.TotalTokens)
